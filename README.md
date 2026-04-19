@@ -185,7 +185,7 @@ streamlit run app.py
 
 ## 🧠 기술 스택 요약
 - **Frontend**: Streamlit 1.39+
-- **Vision AI**: Google Gemini 2.0 Flash (MLLM, zero-shot 식품 인식)
+- **Vision AI**: Google Gemini 2.5 Flash (MLLM, zero-shot 식품 인식)
 - **영양 DB**: 농촌진흥청 국가표준식품성분표 Release 10.0 (2023)
 - **당뇨 지표**: Atkinson et al. (2021) International GI/GL Tables
 - **Deploy**: Streamlit Community Cloud (무료)

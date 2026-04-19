@@ -79,32 +79,75 @@ VISION_PROMPT = """너는 음식 사진 분석 전문가야. 업로드된 사진
 """
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_available_vision_model() -> str:
+    """
+    사용 가능한 비전 지원 모델을 동적으로 찾는다.
+    2026년 4월 현재 안정 모델은 gemini-2.5-flash.
+    모델명이 바뀌어도 자동으로 적응하도록 우선순위 리스트 + list_models fallback 사용.
+    """
+    # 2026년 4월 기준 최신 모델 우선순위
+    preferred = [
+        "gemini-2.5-flash",         # 현재 안정 (2026) — 가격/속도 최적
+        "gemini-flash-latest",      # 항상 최신 flash 별칭
+        "gemini-2.5-flash-preview", # preview
+        "gemini-3-flash-preview",   # Gemini 3 flash (있으면)
+        "gemini-2.0-flash",         # 이전 버전 fallback
+    ]
+    # 1차: 우선순위 모델 시도
+    for m in preferred:
+        try:
+            genai.GenerativeModel(m)  # 존재 확인
+            return m
+        except Exception:
+            continue
+    # 2차: list_models로 사용 가능한 모델 동적 검색
+    try:
+        for info in genai.list_models():
+            methods = getattr(info, "supported_generation_methods", [])
+            if "generateContent" in methods and "flash" in info.name:
+                return info.name.replace("models/", "")
+        # flash 없으면 아무 generateContent 지원 모델
+        for info in genai.list_models():
+            methods = getattr(info, "supported_generation_methods", [])
+            if "generateContent" in methods:
+                return info.name.replace("models/", "")
+    except Exception:
+        pass
+    return "gemini-2.5-flash"  # 최후의 기본값
+
+
 def analyze_image_with_gemini(image: Image.Image) -> dict:
     """Gemini로 이미지 분석하고 JSON 파싱"""
     try:
-        # 모델 선택: 2.0-flash가 무료 티어에서 속도/품질 균형
-        model_candidates = [
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-        ]
-        last_err = None
-        for model_name in model_candidates:
+        model_name = _get_available_vision_model()
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                [VISION_PROMPT, image],
+                generation_config={
+                    "temperature": 0.2,
+                    "max_output_tokens": 1500,
+                },
+            )
+        except Exception as e:
+            # 디버깅에 도움되도록 실제 사용 가능 모델 목록을 함께 반환
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(
-                    [VISION_PROMPT, image],
-                    generation_config={
-                        "temperature": 0.2,
-                        "max_output_tokens": 1500,
-                    },
+                available = []
+                for info in genai.list_models():
+                    methods = getattr(info, "supported_generation_methods", [])
+                    if "generateContent" in methods:
+                        available.append(info.name.replace("models/", ""))
+                avail_str = ", ".join(available[:10]) if available else "(조회 실패)"
+            except Exception:
+                avail_str = "(조회 실패)"
+            return {
+                "error": (
+                    f"모델 '{model_name}' 호출 실패: {e}\n\n"
+                    f"💡 현재 API 키로 사용 가능한 모델: {avail_str}\n"
+                    f"위 목록에 있는 모델명을 app.py의 preferred 리스트에 추가하세요."
                 )
-                break
-            except Exception as e:
-                last_err = e
-                continue
-        else:
-            return {"error": f"모든 모델 호출 실패: {last_err}"}
+            }
 
         raw = response.text.strip()
 
@@ -240,7 +283,7 @@ def render_report():
     with st.expander("2️⃣ 사용 모델 및 학습 데이터"):
         st.markdown("""
 ### 🤖 비전 인식 모델
-- **모델**: Google **Gemini 2.0 Flash** (대체: Gemini 1.5 Flash)
+- **모델**: Google **Gemini 2.5 Flash** (2026년 4월 기준 안정 버전, 자동 fallback 지원)
 - **종류**: Multimodal Large Language Model (MLLM)
 - **학습 데이터**: 구글 비공개. 수십억 장 이상의 웹 이미지 + 텍스트 페어로 사전학습.
 - **왜 이 모델인가?**
